@@ -113,6 +113,7 @@ sema_up (struct semaphore *sema) {
 		thread_unblock (list_entry (list_pop_front (&sema->waiters), struct thread, elem));
 	sema->value++;
 	intr_set_level (old_level);
+	thread_yield();
 
 }
 
@@ -184,23 +185,45 @@ lock_init (struct lock *lock) {
    we need to sleep. */
 void
 lock_acquire (struct lock *lock) {
-	ASSERT (lock != NULL);
-	ASSERT (!intr_context ());
-	ASSERT (!lock_held_by_current_thread (lock));
-	
+    ASSERT (lock != NULL);
+    ASSERT (!intr_context ());
+    ASSERT (!lock_held_by_current_thread (lock));
+    
+    struct thread *curr = thread_current();
+    // --- 기부(Donation) 로직 시작 ---
+    if (lock->holder != NULL) {
+        // 1. 내가 어떤 락을 기다리는지 기록
+        curr->waiting_lock = lock;
 
-	if ((lock->semaphore.value == 0) && is_valid(lock->holder)) {
-		struct thread *holder = lock->holder;
-		thread_current()->waiting_lock = lock;
-		if (thread_get_priority() > get_priority(holder))
-			list_push_back(&holder->donations, &thread_current()->donation_elem);
-	}
+        struct thread *holder = lock->holder;
 
-	sema_down (&lock->semaphore);
+        // 2. holder의 기부 리스트에 나(curr)를 '정렬하여' 삽입
+        //    (무한 루프 방지를 위해 이미 있는지 확인하는 로직이 추가되면 더 좋음)
+        list_insert_ordered(&holder->donations, 
+                            &curr->donation_elem,
+                            more_mvp_func, NULL);
+        // 3. holder의 우선순위를 재계산
+        //    이 함수가 재귀적으로 중첩된 모든 holder의 우선순위를 갱신함
+        thread_recalculate_priority(holder);
+    }
+    // --- 기부 로직 끝 ---
 
-	lock->holder = thread_current ();
-	lock->holder->waiting_lock = NULL;
+    sema_down (&lock->semaphore);
 
+    // --- 락 획득 성공 ---
+    
+    // 1. 락의 홀더가 됨
+    lock->holder = curr;
+    
+    // 2. 더 이상 이 락을 기다리지 않음
+    curr->waiting_lock = NULL; 
+    
+    /* * 3. (중요) 락을 획득했으므로, 락 홀더(나)의 donations 리스트에서
+     * 이 락을 기다리던 스레드들을 제거할 필요가 *없습니다*.
+     * 왜냐하면 이 락을 기다리던 스레드들은 sema_down에서 자고 있고,
+     * 나(curr)는 이 락의 홀더가 되었기 때문입니다.
+     * 'donations' 리스트는 오직 'lock_release'에서만 정리합니다.
+     */
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -230,23 +253,31 @@ lock_try_acquire (struct lock *lock) {
    handler. */
 void
 lock_release (struct lock *lock) {
-	ASSERT (lock != NULL);
-	ASSERT (lock_held_by_current_thread (lock));
-	// 락을 풀었으면 donation 정리하면서 자기 priority 도르마무
+    ASSERT (lock != NULL);
+    ASSERT (lock_held_by_current_thread (lock));
 
-	struct list_elem *cur = list_begin(&lock->holder->donations);
-	while (cur != list_tail(&lock->holder->donations)) {
-		struct list_elem *next = list_next(cur);
-		if (list_entry(cur,struct thread, donation_elem)->waiting_lock == lock) {
-			list_remove(cur);
-		}
-		cur = next;
-	}
+    struct thread *curr = thread_current(); // (curr == lock->holder)
 
-	lock->holder = NULL;
+    // 1. 이 락(lock)을 기다리면서 나(curr)에게 기부했던
+    //    모든 스레드(donor)를 나의 donations 리스트에서 제거
+    struct list_elem *e = list_begin(&curr->donations);
+    while (e != list_end(&curr->donations)) {
+        struct thread *donor = list_entry(e, struct thread, donation_elem);
+        
+        struct list_elem *next = list_next(e); // list_remove 대비
+        
+        if (donor->waiting_lock == lock) {
+            list_remove(e);
+        }
+        e = next;
+    }
+    // 2. (***FIX***) 기부가 제거되었으므로, 나의 유효 우선순위를 재계산
+    thread_recalculate_priority(curr);
 
-	sema_up (&lock->semaphore);
-	thread_yield();
+    // 3. 락 홀더를 NULL로 설정
+    lock->holder = NULL;
+
+    sema_up (&lock->semaphore);
 }
 
 
