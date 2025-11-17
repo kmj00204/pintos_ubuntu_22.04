@@ -339,6 +339,7 @@ static bool load(const char* file_name, struct intr_frame* if_)
         goto done;
     }
 
+
     /* Read and verify executable header. */
     if (file_read(file, &ehdr, sizeof ehdr) != sizeof ehdr || memcmp(ehdr.e_ident, "\177ELF\2\1\1", 7) ||
         ehdr.e_type != 2 || ehdr.e_machine != 0x3E // amd64
@@ -346,6 +347,7 @@ static bool load(const char* file_name, struct intr_frame* if_)
         printf("load: %s: error loading executable\n", file_name);
         goto done;
     }
+
 
     /* Read program headers. */
     file_ofs = ehdr.e_phoff;

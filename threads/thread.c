@@ -207,12 +207,6 @@ tid_t thread_create(const char* name, int priority, thread_func* function, void*
     /* Add to run queue. */
     thread_unblock(t);
 
-    // if (lock_held_by_current_thread(aux)) {
-    //   if (thread_current()->priority < priority) {
-    //     thread_current()->priority =
-    //   }
-    // }
-
     if (priority > thread_get_priority())
         thread_yield();
 
@@ -250,8 +244,8 @@ bool more_mvp_func(const struct list_elem* a, const struct list_elem* b, void* a
 {
     struct thread* thread_a = list_entry(a, struct thread, elem);
     struct thread* thread_b = list_entry(b, struct thread, elem);
-    return get_priority(thread_a) > get_priority(thread_b);
-}
+    return thread_a->priority > thread_b->priority;
+
 
 void thread_unblock(struct thread* t)
 {
@@ -331,27 +325,52 @@ void thread_yield(void)
 }
 
 /* Sets the current thread's priority to NEW_PRIORITY. */
-void thread_set_priority(int new_priority)
+void thread_recalculate_priority(struct thread* t)
 {
-    thread_current()->priority = new_priority;
+    int new_priority = t->base_priority;
 
-    if (list_entry(list_front(&ready_list), struct thread, elem)->priority > new_priority)
-        thread_yield();
-}
-
-/* Returns the current thread's priority. */
-int thread_get_priority(void)
-{
-    return get_priority(thread_current());
+    if (!list_empty(&t->donations)) {
+        struct thread* highest_donor = list_entry(list_back(&t->donations), struct thread, donation_elem);
+        if (highest_donor->priority > new_priority) {
+            new_priority = highest_donor->priority;
+        }
+    }
+    // if priority is changed - it must be sent down the line
+    if (t->priority != new_priority) {
+        t->priority = new_priority;
+        // the lock the thread is waiting for must have a holder to donate
+        if (t->waiting_lock && t->waiting_lock->holder) {
+            struct thread* holder = t->waiting_lock->holder;
+            if (holder != t) {
+                thread_recalculate_priority(holder);
+            }
+        }
+    }
 }
 
 int get_priority(struct thread* t)
 {
-    if (!list_empty(&t->donations))
-        return list_entry(list_back(&t->donations), struct thread, donation_elem)->priority;
-
     return t->priority;
 }
+
+int thread_get_priority(void)
+{
+    return thread_current()->priority;
+}
+
+void thread_set_priority(int new_priority)
+{
+    enum intr_level old_level = intr_disable();
+    struct thread* curr = thread_current();
+    curr->base_priority = new_priority; // 기본 우선순위를 변경
+    // 기부받은 우선순위와 비교하여 유효 우선순위를 재계산
+    thread_recalculate_priority(curr); // priority = max(new_priority, max_donor_priority)
+
+    if (!list_empty(&ready_list) && curr->priority < list_entry(list_front(&ready_list), struct thread, elem)->priority)
+        thread_yield();
+    intr_set_level(old_level);
+}
+
 
 /* Sets the current thread's nice value to NICE. */
 void thread_set_nice(int nice UNUSED)
@@ -440,6 +459,7 @@ static void init_thread(struct thread* t, const char* name, int priority)
     strlcpy(t->name, name, sizeof t->name);
     t->tf.rsp = (uint64_t)t + PGSIZE - sizeof(void*);
     t->priority = priority;
+    t->base_priority = priority;
     t->magic = THREAD_MAGIC;
     list_init(&t->donations);
     t->waiting_lock = NULL;
