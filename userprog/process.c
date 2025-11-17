@@ -157,6 +157,12 @@ error:
     thread_exit();
 }
 
+void arg_passing(void* f_line, struct intr_frame *_if) 
+{
+    
+
+}
+
 /* Switch the current execution context to the f_name.
  * Returns -1 on fail. */
 int process_exec(void* f_name)
@@ -177,12 +183,13 @@ int process_exec(void* f_name)
 
     /* And then load the binary */
     success = load(file_name, &_if);
-    
 
     /* If load failed, quit. */
     palloc_free_page(file_name);
     if (!success)
         return -1;
+    
+    arg_passing(f_name, &_if);
 
     /* Start switched process. */
     do_iret(&_if);
@@ -203,6 +210,7 @@ int process_wait(tid_t child_tid UNUSED)
     /* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
      * XXX:       to add infinite loop here before
      * XXX:       implementing the process_wait. */
+    timer_sleep(100);
     return -1;
 }
 
