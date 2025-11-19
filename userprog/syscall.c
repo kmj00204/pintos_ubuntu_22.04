@@ -7,6 +7,7 @@
 #include "userprog/gdt.h"
 #include "threads/flags.h"
 #include "intrinsic.h"
+#include "threads/synch.h"
 
 void syscall_entry(void);
 void syscall_handler(struct intr_frame*);
@@ -23,6 +24,10 @@ void syscall_handler(struct intr_frame*);
 #define MSR_STAR 0xc0000081         /* Segment selector msr */
 #define MSR_LSTAR 0xc0000082        /* Long mode SYSCALL target */
 #define MSR_SYSCALL_MASK 0xc0000084 /* Mask for the eflags */
+
+#define MAX_CHUNK 256 /* 콘솔 출력 청크 사이즈 */
+
+static struct lock lock;
 
 void syscall_init(void)
 {
@@ -46,14 +51,29 @@ void syscall_handler(struct intr_frame* f UNUSED)
     register uint64_t arg5 = f->R.r8;
     register uint64_t arg6 = f->R.r9;
 
+    lock_init(&lock);
+
     switch (rax) {
     case SYS_WRITE:
-        // FIXME: write file은 skip된 상태
         if (arg1 == 1) {
-            // FIXME: 만약 arg2(buffer)가 너무 커지면, buffer를 나눠서 putbuf를 호출해야 함
-            putbuf(arg2, arg3);
-            // TODO: 실제로 출력한 크기를 어떻게 호출하지?
-            return sizeof arg2;
+            lock_acquire(&lock); // race condition 방지
+
+            size_t size = arg3;
+            char* buf = (char*)arg2;
+            if (size <= MAX_CHUNK) {
+                putbuf(buf, size);
+            } else { // 256 이상은 분할 출력
+                size_t offset = 0;
+                while (offset < size) {
+                    size_t chunk_size = size - offset < MAX_CHUNK ? size - offset : MAX_CHUNK;
+                    putbuf(buf + offset, chunk_size);
+                    offset += chunk_size;
+                }
+            }
+            lock_release(&lock);
+            return size;
+        } else {
+            // TODO: file write 구현
         }
         break;
 
