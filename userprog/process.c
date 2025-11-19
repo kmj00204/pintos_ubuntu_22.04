@@ -164,11 +164,12 @@ error:
  * Returns -1 on fail. */
 int process_exec(void* f_name)
 {
-    char* file_name = f_name;
     char *file_name_only, *save_ptr;
     bool success;
 
-    file_name_only = strtok_r(f_name, " ", &save_ptr);
+    char f_name_copy[15];
+    strlcpy(&f_name_copy, f_name, sizeof(f_name_copy));
+    file_name_only = strtok_r(&f_name_copy, " ", &save_ptr);
 
     /* We cannot use the intr_frame in the thread structure.
      * This is because when current thread rescheduled,
@@ -182,12 +183,12 @@ int process_exec(void* f_name)
     process_cleanup();
 
     /* And then load the binary */
-    success = load(file_name, &_if);
+    success = load(f_name, &_if);
 
     // hex_dump(_if.rsp, _if.rsp, USER_STACK - (uint64_t)_if.rsp, true);
 
     /* If load failed, quit. */
-    palloc_free_page(file_name_only);
+    palloc_free_page(f_name);
     if (!success)
         return -1;
 
@@ -357,7 +358,9 @@ static bool load(const char* file_name, struct intr_frame* if_)
     int i;
     char *token, *save_ptr, *file_name_only;
 
-    file_name_only = strtok_r(file_name, " ", &save_ptr);
+    char f_name_copy[15];
+    strlcpy(&f_name_copy, file_name, sizeof(f_name_copy));
+    file_name_only = strtok_r(&f_name_copy, " ", &save_ptr);
 
     /* Allocate and activate page directory. */
     t->pml4 = pml4_create();
@@ -454,12 +457,12 @@ static bool load(const char* file_name, struct intr_frame* if_)
     }
 
     // 주소 값 메모리에 넣기
-    int addr_idx = 0;
+    int addr_idx = index - 1;
     ptr -= 8;
     memset(ptr, 0, 8); // 마지막 원소 NULL 처리
-    while (address[addr_idx] != NULL) {
+    while (addr_idx >= 0) {
         ptr -= 8;
-        memcpy(ptr, &address[addr_idx++], 8);
+        memcpy(ptr, &address[addr_idx--], 8);
     }
 
     // return address 넣기
