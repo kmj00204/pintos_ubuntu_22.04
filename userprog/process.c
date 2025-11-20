@@ -180,6 +180,7 @@ void arg_passing(void* f_line, struct intr_frame* _if)
     // parse and push arguments into stack at the same time
     // simultaneously add argv_address within stack
     for (token = strtok_r(f_line, " ", &save_ptr); token != NULL; token = strtok_r(NULL, " ", &save_ptr)) {
+        if (*token == '\0') continue;
         int len = strlen(token) + 1;
         rsp -= len;
         memcpy(rsp, token, len);
@@ -233,23 +234,23 @@ int process_exec(void* f_name)
 
     /* file name parsing logic necessary before passing on to load*/
     /* same logic from parsing thread_name in process_create_initd */
-    char load_name[14];                // maximum length of file name declared in filesys/directory.h
-    size_t len = strcspn(f_name, " "); // returns length of initial segment up til rejected character
-    if (len >= sizeof(load_name))      // logic to prevent buffer over flow
+    char load_name[64];                     // if this is too short load might fail
+    size_t len = strcspn(file_name, " ");   // returns length of initial segment up til rejected character
+    if (len >= sizeof(load_name))           // logic to prevent buffer over flow
         len = sizeof(load_name) - 1;
 
-    memcpy(load_name, f_name, len); // copy name
+    memcpy(load_name, file_name, len); // copy name
     load_name[len] = '\0';          // implement null termination
-
     /* And then load the binary */
-    success = load(file_name, &_if);
-
+    success = load(load_name, &_if);
     /* If load failed, quit. */
-    palloc_free_page(file_name);
     if (!success)
         return -1;
 
-    arg_passing(f_name, &_if);
+    arg_passing(file_name, &_if);
+    
+    // move palloc_free_page after arg_passing()
+    palloc_free_page(file_name);
 
     /* Start switched process. */
     do_iret(&_if);
