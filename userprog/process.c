@@ -50,8 +50,18 @@ tid_t process_create_initd(const char* file_name)
         return TID_ERROR;
     strlcpy(fn_copy, file_name, PGSIZE);
 
+    /* thread_name parsing logic necessary due to thread name size limit declared in thread.h */
+    /* this logic was chosen instead of strtok which damages original string */
+    char thread_name[16];
+    size_t len = strcspn(fn_copy, " "); // returns length of initial segment up til rejected character
+    if (len >= sizeof(thread_name))     // logic to prevent buffer over flow
+        len = sizeof(thread_name) - 1;
+
+    memcpy(thread_name, fn_copy, len); // copy name
+    thread_name[len] = '\0';           // implement null termination
+
     /* Create a new thread to execute FILE_NAME. */
-    tid = thread_create(file_name, PRI_DEFAULT, initd, fn_copy);
+    tid = thread_create(thread_name, PRI_DEFAULT, initd, fn_copy);
     if (tid == TID_ERROR)
         palloc_free_page(fn_copy);
     return tid;
@@ -178,6 +188,16 @@ int process_exec(void* f_name)
 
     /* We first kill the current context */
     process_cleanup();
+
+    /* file name parsing logic necessary before passing on to load*/
+    /* same logic from parsing thread_name in process_create_initd */
+    char load_name[14];                // maximum length of file name declared in filesys/directory.h
+    size_t len = strcspn(f_name, " "); // returns length of initial segment up til rejected character
+    if (len >= sizeof(load_name))      // logic to prevent buffer over flow
+        len = sizeof(load_name) - 1;
+
+    memcpy(load_name, f_name, len); // copy name
+    load_name[len] = '\0';          // implement null termination
 
     /* And then load the binary */
     success = load(file_name, &_if);
