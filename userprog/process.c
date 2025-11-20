@@ -157,10 +157,8 @@ error:
     thread_exit();
 }
 
-void arg_passing(void* f_line, struct intr_frame *_if) 
+void arg_passing(void* f_line, struct intr_frame* _if)
 {
-    
-
 }
 
 /* Switch the current execution context to the f_name.
@@ -188,7 +186,7 @@ int process_exec(void* f_name)
     palloc_free_page(file_name);
     if (!success)
         return -1;
-    
+
     arg_passing(f_name, &_if);
 
     /* Start switched process. */
@@ -218,10 +216,12 @@ int process_wait(tid_t child_tid UNUSED)
 void process_exit(void)
 {
     struct thread* curr = thread_current();
+
     /* TODO: Your code goes here.
      * TODO: Implement process termination message (see
      * TODO: project2/process_termination.html).
      * TODO: We recommend you to implement process resource cleanup here. */
+    printf("%s: exit(%d)\n", curr->name, curr->exit_status);
 
     process_cleanup();
 }
