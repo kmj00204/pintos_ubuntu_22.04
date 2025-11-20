@@ -26,6 +26,7 @@ static void process_cleanup(void);
 static bool load(const char* file_name, struct intr_frame* if_);
 static void initd(void* f_name);
 static void __do_fork(void*);
+void get_file_name_only(const char* original_f_name, char* f_name_only, char** save_ptr);
 
 /* General process initializer for initd and other process. */
 static void process_init(void)
@@ -42,7 +43,9 @@ tid_t process_create_initd(const char* file_name)
 {
     char* fn_copy;
     tid_t tid;
-    char *file_name_only, *save_ptr;
+    char file_name_only[15], *save_ptr;
+
+    get_file_name_only(file_name, file_name_only, &save_ptr);
 
     /* Make a copy of FILE_NAME.
      * Otherwise there's a race between the caller and load(). */
@@ -50,8 +53,6 @@ tid_t process_create_initd(const char* file_name)
     if (fn_copy == NULL)
         return TID_ERROR;
     strlcpy(fn_copy, file_name, PGSIZE);
-
-    file_name_only = strtok_r(file_name, " ", &save_ptr);
 
     /* Create a new thread to execute FILE_NAME. */
     tid = thread_create(file_name_only, PRI_DEFAULT, initd, fn_copy);
@@ -164,12 +165,10 @@ error:
  * Returns -1 on fail. */
 int process_exec(void* f_name)
 {
-    char *file_name_only, *save_ptr;
+    char file_name_only[15], *save_ptr;
     bool success;
 
-    char f_name_copy[15];
-    strlcpy(&f_name_copy, f_name, sizeof(f_name_copy));
-    file_name_only = strtok_r(&f_name_copy, " ", &save_ptr);
+    get_file_name_only(f_name, file_name_only, &save_ptr);
 
     /* We cannot use the intr_frame in the thread structure.
      * This is because when current thread rescheduled,
@@ -221,10 +220,6 @@ int process_wait(tid_t child_tid UNUSED)
 void process_exit(void)
 {
     struct thread* curr = thread_current();
-    /* TODO: Your code goes here.
-     * TODO: Implement process termination message (see
-     * TODO: project2/process_termination.html).
-     * TODO: We recommend you to implement process resource cleanup here. */
 
     if (curr->pml4 != NULL) // 커널 스레드는 출력 x
         printf("%s: exit(%d)\n", thread_current()->name, curr->tf.R.rax);
@@ -340,11 +335,9 @@ static bool load(const char* file_name, struct intr_frame* if_)
     off_t file_ofs;
     bool success = false;
     int i;
-    char *token, *save_ptr, *file_name_only;
+    char *token, *save_ptr, file_name_only[15];
 
-    char f_name_copy[15];
-    strlcpy(&f_name_copy, file_name, sizeof(f_name_copy));
-    file_name_only = strtok_r(&f_name_copy, " ", &save_ptr);
+    get_file_name_only(file_name, file_name_only, &save_ptr);
 
     /* Allocate and activate page directory. */
     t->pml4 = pml4_create();
@@ -443,7 +436,6 @@ static bool load(const char* file_name, struct intr_frame* if_)
     // 주소 값 메모리에 넣기
     int addr_idx = index - 1;
     ptr -= 8;
-    memset(ptr, 0, 8); // 마지막 원소 NULL 처리
     while (addr_idx >= 0) {
         ptr -= 8;
         memcpy(ptr, &address[addr_idx--], 8);
@@ -451,7 +443,6 @@ static bool load(const char* file_name, struct intr_frame* if_)
 
     // return address 넣기
     ptr -= 8;
-    memset(ptr, 0, 8);
 
     if_->rsp = (uint64_t)ptr;
     if_->R.rdi = index;             // argc
@@ -674,3 +665,14 @@ static bool setup_stack(struct intr_frame* if_)
     return success;
 }
 #endif /* VM */
+
+void get_file_name_only(const char* original_f_name, char* f_name_only, char** save_ptr)
+{
+    char buffer[15], *f_name_tmp;
+
+    strlcpy(buffer, original_f_name, sizeof(buffer));
+    buffer[14] = '\0';
+    f_name_tmp = strtok_r(buffer, " ", save_ptr);
+
+    strlcpy(f_name_only, f_name_tmp, strlen(f_name_tmp) + 1);
+}
