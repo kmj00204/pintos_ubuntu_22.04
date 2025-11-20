@@ -60,6 +60,18 @@ void syscall_handler(struct intr_frame* f UNUSED)
     case SYS_EXIT:
         exit(arg1);
         break;
+
+    case SYS_CREATE:
+        if (strlen(arg1) > 14) // 14자 제한
+            return 0;
+
+        lock_acquire(&lock); // 동시 접근 방지
+        int result = filesys_create(arg1, arg2);
+        lock_release(&lock);
+
+        return result;
+        break;
+
     case SYS_WRITE:
         f->R.rax = write(arg1, arg2, arg3);
         break;
