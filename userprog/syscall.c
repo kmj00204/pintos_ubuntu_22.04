@@ -65,19 +65,17 @@ void syscall_handler(struct intr_frame* f UNUSED)
         if (!arg1)
             exit(-1);
 
-        if (strlen(arg1) > 14) // 14자 제한
-            return 0;
-
         lock_acquire(&lock); // 동시 접근 방지
         int result = filesys_create(arg1, arg2);
         lock_release(&lock);
 
-        return result;
+        f->R.rax = result;
         break;
 
     case SYS_WRITE:
         f->R.rax = write(arg1, arg2, arg3);
         break;
+
     default:
         thread_exit();
     }
