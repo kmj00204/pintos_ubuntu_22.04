@@ -137,13 +137,13 @@ static void check_valid_ptr(int count, ...)
         uint64_t ptr = va_arg(ptr_ap, uint64_t);
 
         // Check NULL
-        if (!ptr) {
+        if (ptr == NULL) {
             va_end(ptr_ap);
             exit(-1);
         }
 
         // Check user segment
-        if (ptr < CODE_SEGMENT || ptr > USER_STACK) {
+        if (ptr < CODE_SEGMENT || ptr >= USER_STACK) {
             va_end(ptr_ap);
             exit(-1);
         }
