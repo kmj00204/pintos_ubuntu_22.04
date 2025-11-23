@@ -133,7 +133,6 @@ static int open(const void* file_name)
 {
     check_valid_ptr(1, file_name);
 
-    // TODO: 받아온 fd는 보호. 동시 접근 시 충돌
     struct file* f = filesys_open(file_name);
 
     if (f == NULL) { // file 오픈 실패
@@ -144,8 +143,8 @@ static int open(const void* file_name)
     struct thread* curr = thread_current();
     int fd = -1;
 
-    // fdte를 3부터 순회. 비어있는 곳을 찾아서 해당 순번을 반환.
-    for (int i = 3; i <= MAX_FD; i++) { // fd 0, 1, 2는 콘솔 전용
+    // 3부터 순회 -> 빈 순번 할당
+    for (int i = MIN_FD; i <= MAX_FD; i++) {
         if (curr->fdte[i] == NULL) {
             curr->fdte[i] = f;
             fd = i;
@@ -158,14 +157,15 @@ static int open(const void* file_name)
 
 static void close(int fd)
 {
+    if (fd < MIN_FD || fd > MAX_FD) {
+        exit(-1);
+    }
+
     struct thread* curr = thread_current();
 
-    // 함수 내부에서 inode를 제거할 지 결정 (open_cnt 참조)
-    file_close(curr->fdte[fd]); // close file & inode
+    file_close(curr->fdte[fd]); // open_cnt 보고 inode 제거
 
     curr->fdte[fd] = NULL; // remove fdte
-
-    // fd 보호 해제
 }
 
 /**

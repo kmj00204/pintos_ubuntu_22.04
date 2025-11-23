@@ -28,6 +28,8 @@ typedef int tid_t;
 #define PRI_MAX 63     /* Highest priority. */
 
 /* File Descriptor */
+/* 0, 1, 2 콘솔 전용 */
+#define MIN_FD 3   /* fd 최소값 */
 #define MAX_FD 128 /* fd 최대값 */
 
 /* A kernel thread or user process.
