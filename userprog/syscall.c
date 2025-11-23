@@ -1,6 +1,7 @@
 #include "userprog/syscall.h"
 #include <stdio.h>
 #include <syscall-nr.h>
+#include <filesys/filesys.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/loader.h"
@@ -19,6 +20,7 @@ static struct lock lock;
 static void exit(int status);
 static int create(char* file_name, int initial_size);
 static int write(int fd, const void* buffer, unsigned size);
+static int open(const void* file_name);
 static void check_valid_ptr(int count, ...);
 
 /* System call.
@@ -72,6 +74,10 @@ void syscall_handler(struct intr_frame* f UNUSED)
         f->R.rax = write(arg1, arg2, arg3);
         break;
 
+    case SYS_OPEN:
+        f->R.rax = open(arg1);
+        break;
+
     default:
         thread_exit();
     }
@@ -115,6 +121,33 @@ static int write(int fd, const void* buffer, unsigned size)
     lock_release(&lock);
 
     return size;
+}
+
+static int open(const void* file_name)
+{
+    check_valid_ptr(1, file_name);
+
+    // TODO: 받아온 fd는 보호. 동시 접근 시 충돌
+    struct file* f = filesys_open(file_name);
+
+    if (f == NULL) { // file 오픈 실패
+        return -1;
+    }
+
+    // file descriptor table entry 생성
+    struct thread* curr = thread_current();
+    int fd = -1;
+
+    // fdte를 3부터 순회. 비어있는 곳을 찾아서 해당 순번을 반환.
+    for (int i = 3; i <= MAX_FD; i++) { // fd 0, 1, 2는 콘솔 전용
+        if (curr->fdte[i] == NULL) {
+            curr->fdte[i] = f;
+            fd = i;
+            break;
+        }
+    }
+
+    return fd;
 }
 
 /**
