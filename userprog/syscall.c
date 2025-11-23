@@ -26,6 +26,7 @@ static int write(int fd, const void* buffer, unsigned size);
 static int open(const char* file_name);
 static void close(int fd);
 static void check_valid_ptr(int count, ...);
+static void check_valid_fd(int fd);
 
 /* System call.
  *
@@ -117,18 +118,16 @@ static int create(char* file_name, int initial_size)
     return result;
 }
 
-int filesize(int fd)
+static int filesize(int fd)
 {
-    if (fd < MIN_FD || fd > MAX_FD) {
-        exit(-1);
-    }
+    check_valid_fd(fd);
 
     struct thread* curr = thread_current();
 
     return file_length(curr->fdte[fd]);
 }
 
-int read(int fd, void* buffer, unsigned size)
+static int read(int fd, void* buffer, unsigned size)
 {
 
     /**
@@ -138,9 +137,7 @@ int read(int fd, void* buffer, unsigned size)
       fd 0 은 키보드 입력을 input_getc() 로 읽는다.
      */
 
-    if (fd < MIN_FD || fd > MAX_FD) {
-        exit(-1);
-    }
+    check_valid_fd(fd);
 
     struct thread* curr = thread_current();
 
@@ -199,9 +196,7 @@ static int open(const char* file_name)
 
 static void close(int fd)
 {
-    if (fd < MIN_FD || fd > MAX_FD) {
-        exit(-1);
-    }
+    check_valid_fd(fd);
 
     struct thread* curr = thread_current();
 
@@ -251,4 +246,10 @@ static void check_valid_ptr(int count, ...)
     }
 
     va_end(ptr_ap);
+}
+
+static void check_valid_fd(int fd)
+{
+    if (fd < MIN_FD || fd > MAX_FD)
+        exit(-1);
 }
