@@ -20,6 +20,8 @@ void syscall_handler(struct intr_frame*);
 static struct lock lock;
 static void exit(int status);
 static int create(char* file_name, int initial_size);
+static int filesize(int fd);
+static int read(int fd, void* buffer, unsigned size);
 static int write(int fd, const void* buffer, unsigned size);
 static int open(const char* file_name);
 static void close(int fd);
@@ -72,6 +74,14 @@ void syscall_handler(struct intr_frame* f UNUSED)
         f->R.rax = create(arg1, arg2);
         break;
 
+    case SYS_FILESIZE:
+        f->R.rax = filesize(arg1);
+        break;
+
+    case SYS_READ:
+        f->R.rax = read(arg1, arg2, arg3);
+        break;
+
     case SYS_WRITE:
         f->R.rax = write(arg1, arg2, arg3);
         break;
@@ -105,6 +115,36 @@ static int create(char* file_name, int initial_size)
     lock_release(&lock);
 
     return result;
+}
+
+int filesize(int fd)
+{
+    if (fd < MIN_FD || fd > MAX_FD) {
+        exit(-1);
+    }
+
+    struct thread* curr = thread_current();
+
+    return file_length(curr->fdte[fd]);
+}
+
+int read(int fd, void* buffer, unsigned size)
+{
+
+    /**
+      fd 로 열린 파일에서 size 바이트를 buffer 로 읽는다.
+      실제 읽은 바이트 수를 반환한다 (EOF에서 0).
+      읽을 수 없는 경우 -1.
+      fd 0 은 키보드 입력을 input_getc() 로 읽는다.
+     */
+
+    if (fd < MIN_FD || fd > MAX_FD) {
+        exit(-1);
+    }
+
+    struct thread* curr = thread_current();
+
+    return file_read(curr->fdte[fd], buffer, size);
 }
 
 static int write(int fd, const void* buffer, unsigned size)
