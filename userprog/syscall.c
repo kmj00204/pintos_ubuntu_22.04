@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <syscall-nr.h>
 #include <filesys/filesys.h>
+#include <filesys/file.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/loader.h"
@@ -21,6 +22,7 @@ static void exit(int status);
 static int create(char* file_name, int initial_size);
 static int write(int fd, const void* buffer, unsigned size);
 static int open(const void* file_name);
+static void close(int fd);
 static void check_valid_ptr(int count, ...);
 
 /* System call.
@@ -76,6 +78,10 @@ void syscall_handler(struct intr_frame* f UNUSED)
 
     case SYS_OPEN:
         f->R.rax = open(arg1);
+        break;
+
+    case SYS_CLOSE:
+        close(arg1);
         break;
 
     default:
@@ -148,6 +154,18 @@ static int open(const void* file_name)
     }
 
     return fd;
+}
+
+static void close(int fd)
+{
+    struct thread* curr = thread_current();
+
+    // 함수 내부에서 inode를 제거할 지 결정 (open_cnt 참조)
+    file_close(curr->fdte[fd]); // close file & inode
+
+    curr->fdte[fd] = NULL; // remove fdte
+
+    // fd 보호 해제
 }
 
 /**
