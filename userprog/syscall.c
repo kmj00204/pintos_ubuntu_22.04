@@ -26,6 +26,7 @@ static void close(int fd);
 static void check_valid_ptr(int count, ...);
 static int read(int fd, void* buffer, unsigned size);
 static int filesize(int fd);
+static void check_valid_fd(int fd);
 
 /* System call.
  *
@@ -121,32 +122,29 @@ static int write(int fd, const void* buffer, unsigned size)
 {
     check_valid_ptr(1, buffer);
     // need to add logic to check entire buffer
-    lock_acquire(&lock);
+
     if (fd == 1) {
         char* buf = (char*)buffer;
 
         if (size <= MAX_CHUNK) {
             putbuf(buf, size);
-            lock_release(&lock);
-            return size;
         } else { // 256 이상은 분할 출력
             size_t offset = 0;
             while (offset < size) {
                 size_t chunk_size = size - offset < MAX_CHUNK ? size - offset : MAX_CHUNK;
-                putbuf(buf + offset, chunk_size);
+                putbuf((char*)buf + offset, chunk_size);
                 offset += chunk_size;
             }
-            lock_release(&lock);
-            return offset;
         }
+        return size;
     }
 
-    if (fd < MIN_FD || fd > MAX_FD)
-        exit(-1);
+    check_valid_fd(fd);
 
     struct thread* curr = thread_current();
     struct file* f = curr->fdte[fd];
 
+    lock_acquire(&lock);
     int bytes_written = file_write(f, buffer, size);
     lock_release(&lock);
 
@@ -183,9 +181,7 @@ static int open(const char* file_name)
 
 static void close(int fd)
 {
-    if (fd < MIN_FD || fd > MAX_FD) {
-        exit(-1);
-    }
+    check_valid_fd(fd);
 
     struct thread* curr = thread_current();
 
@@ -241,8 +237,7 @@ static int read(int fd, void* buffer, unsigned size)
 {
     check_valid_ptr(1, buffer);
 
-    if (fd < MIN_FD || fd > MAX_FD)
-        exit(-1);
+    check_valid_fd(fd);
 
     struct thread* t = thread_current();
     struct file* f = t->fdte[fd];
@@ -256,9 +251,7 @@ static int read(int fd, void* buffer, unsigned size)
 
 static int filesize(int fd)
 {
-
-    if (fd < MIN_FD || fd > MAX_FD)
-        exit(-1);
+    check_valid_fd(fd);
 
     struct thread* t = thread_current();
     struct file* f = t->fdte[fd];
@@ -266,4 +259,10 @@ static int filesize(int fd)
     size_t size = file_length(f);
     lock_release(&lock);
     return size;
+}
+
+static void check_valid_fd(int fd)
+{
+    if (fd < MIN_FD || fd > MAX_FD)
+        exit(-1);
 }
