@@ -20,12 +20,12 @@ void syscall_handler(struct intr_frame*);
 static struct lock lock;
 static void exit(int status);
 static int create(char* file_name, int initial_size);
-static int filesize(int fd);
-static int read(int fd, void* buffer, unsigned size);
 static int write(int fd, const void* buffer, unsigned size);
 static int open(const char* file_name);
 static void close(int fd);
 static void check_valid_ptr(int count, ...);
+static int read(int fd, void* buffer, unsigned size);
+static int filesize(int fd);
 static void check_valid_fd(int fd);
 
 /* System call.
@@ -75,14 +75,6 @@ void syscall_handler(struct intr_frame* f UNUSED)
         f->R.rax = create(arg1, arg2);
         break;
 
-    case SYS_FILESIZE:
-        f->R.rax = filesize(arg1);
-        break;
-
-    case SYS_READ:
-        f->R.rax = read(arg1, arg2, arg3);
-        break;
-
     case SYS_WRITE:
         f->R.rax = write(arg1, arg2, arg3);
         break;
@@ -93,6 +85,14 @@ void syscall_handler(struct intr_frame* f UNUSED)
 
     case SYS_CLOSE:
         close(arg1);
+        break;
+
+    case SYS_READ:
+        f->R.rax = read(arg1, arg2, arg3);
+        break;
+
+    case SYS_FILESIZE:
+        f->R.rax = filesize(arg1);
         break;
 
     default:
@@ -118,37 +118,12 @@ static int create(char* file_name, int initial_size)
     return result;
 }
 
-static int filesize(int fd)
-{
-    check_valid_fd(fd);
-
-    struct thread* curr = thread_current();
-
-    return file_length(curr->fdte[fd]);
-}
-
-static int read(int fd, void* buffer, unsigned size)
-{
-    if (fd == 0) {
-        return input_getc(); // 키보드 입력 읽기
-    }
-
-    check_valid_fd(fd);
-    check_valid_ptr(1, buffer);
-
-    struct thread* curr = thread_current();
-    struct file* f = curr->fdte[fd];
-
-    return f != NULL ? file_read(f, buffer, size) : -1;
-}
-
 static int write(int fd, const void* buffer, unsigned size)
 {
     check_valid_ptr(1, buffer);
+    // need to add logic to check entire buffer
 
     if (fd == 1) {
-
-        lock_acquire(&lock); // race condition 방지
         char* buf = (char*)buffer;
 
         if (size <= MAX_CHUNK) {
@@ -157,18 +132,23 @@ static int write(int fd, const void* buffer, unsigned size)
             size_t offset = 0;
             while (offset < size) {
                 size_t chunk_size = size - offset < MAX_CHUNK ? size - offset : MAX_CHUNK;
-                putbuf(buf + offset, chunk_size);
+                putbuf((char*)buf + offset, chunk_size);
                 offset += chunk_size;
             }
         }
-        lock_release(&lock);
-
         return size;
-    } else {
-        check_valid_fd(fd);
-
-        return file_write(thread_current()->fdte[fd], buffer, size); // 내부 lock 구현됨
     }
+
+    check_valid_fd(fd);
+
+    struct thread* curr = thread_current();
+    struct file* f = curr->fdte[fd];
+
+    lock_acquire(&lock);
+    int bytes_written = file_write(f, buffer, size);
+    lock_release(&lock);
+
+    return bytes_written;
 }
 
 static int open(const char* file_name)
@@ -251,6 +231,34 @@ static void check_valid_ptr(int count, ...)
     }
 
     va_end(ptr_ap);
+}
+
+static int read(int fd, void* buffer, unsigned size)
+{
+    check_valid_ptr(1, buffer);
+
+    check_valid_fd(fd);
+
+    struct thread* t = thread_current();
+    struct file* f = t->fdte[fd];
+
+    lock_acquire(&lock);
+    int byte_read = file_read(f, buffer, size);
+    lock_release(&lock);
+
+    return byte_read;
+}
+
+static int filesize(int fd)
+{
+    check_valid_fd(fd);
+
+    struct thread* t = thread_current();
+    struct file* f = t->fdte[fd];
+    lock_acquire(&lock);
+    size_t size = file_length(f);
+    lock_release(&lock);
+    return size;
 }
 
 static void check_valid_fd(int fd)
