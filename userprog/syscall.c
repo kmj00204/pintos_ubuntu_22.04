@@ -6,10 +6,13 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/loader.h"
+#include "threads/palloc.h"
 #include "userprog/gdt.h"
 #include "threads/flags.h"
 #include "intrinsic.h"
 #include "threads/synch.h"
+#include "userprog/process.h"
+#include <string.h>
 
 void syscall_entry(void);
 void syscall_handler(struct intr_frame*);
@@ -19,6 +22,9 @@ void syscall_handler(struct intr_frame*);
 
 static struct lock lock;
 static void exit(int status);
+static int fork(const char* thread_name);
+static int exec(const char* cmd_line);
+static int wait(int pid);
 static int create(char* file_name, int initial_size);
 static int write(int fd, const void* buffer, unsigned size);
 static int open(const char* file_name);
@@ -71,6 +77,18 @@ void syscall_handler(struct intr_frame* f UNUSED)
         exit(arg1);
         break;
 
+    case SYS_FORK:
+        f->R.rax = fork(arg1);
+        break;
+
+    case SYS_EXEC:
+        f->R.rax = exec(arg1);
+        break;
+
+    case SYS_WAIT:
+        f->R.rax = wait(arg1);
+        break;
+
     case SYS_CREATE:
         f->R.rax = create(arg1, arg2);
         break;
@@ -105,6 +123,63 @@ static void exit(int status)
     struct thread* t = thread_current();
     t->exit_status = status;
     thread_exit();
+}
+
+static int fork(const char* thread_name)
+{
+    // rbx, rsp, rbp, r12, r13, r14, r15 복제
+
+    // 자식은 fd, 가상 메모리 공간 포함해서 복제된 리소스를 가져야 함 -> 복제 안 하는건 뭐지?
+
+    // 자식이 성공적으로 복제되기 전까지 부모는 fork 함수에서 반환되면 안된다.
+    // -> 자식이 복제 실패하면 부모는 TID_ERROR 반환
+
+    // threads/mmu.c > pml4_for_each()로 사용자 메모리 공간 복사
+    // pte_for_each_func의 누락 부분은 직접 구현 필요 (See
+    // https://casys-kaist.github.io/pintos-kaist/appendix/virtual_address.html)
+
+    // 부모: 자식 프로세스 pid 반환
+    // 자식: 0 반환
+}
+
+static int exec(const char* cmd_line)
+{
+    check_valid_ptr(1, cmd_line);
+
+    char* cl_copy;
+    cl_copy = palloc_get_page(0);
+    if (cl_copy == NULL)
+        return TID_ERROR;
+    strlcpy(cl_copy, cmd_line, PGSIZE);
+
+    process_exec(cl_copy);
+
+    // case: failure
+    exit(-1);
+}
+/**
+ * gdb는 커널 영역만 디버깅이 가능하다?
+ * 그럼 유저영역은 디버깅을 어떻게?
+ */
+
+static int wait(int pid)
+{
+    // 자식 프로세스의 pid를 기다리고, 자식의 종료 상태를 가져온다.
+    // pid가 아직 살아 있다면, 종료될 때까지 대기
+    // pid가 exit를 호출하며 전달한 status를 반환
+
+    // 커널에 의해 종료되면(ex. 예외), -1 반환
+
+    // 부모는 자식이 종료된 상태여도 그 상태를 취할 수 있어야하며, 커널에 의해 죽임당한 사실을 알아야 한다.
+
+    // 다음 상황 발생하면 즉시 실패하고 -1 반환
+    // 직접 자식이 아닌데 wait(손자)을 호출
+    // 프로세스가 같은 자식에 대해 두 번 이상 wait를 호출
+
+    // 부모가 기다리든 말든, 자식이 부모보다 먼저 죽든 나중에 죽든, 프로세스의 모든 리소스(thread 포함)는 반드시
+    // 해제되어야 한다.
+
+    // process_wait부터 구현하고 wait 구현하기
 }
 
 static int create(char* file_name, int initial_size)
