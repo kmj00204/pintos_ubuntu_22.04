@@ -130,14 +130,13 @@ static int fork(const char* thread_name, struct intr_frame* f)
 {
     check_valid_ptr(1, thread_name);
 
+    /* thread name을 커널 영역으로 복사 */
     char* tn_copy = palloc_get_page(0);
     if (tn_copy == NULL)
         return TID_ERROR;
     strlcpy(tn_copy, thread_name, PGSIZE);
 
-    // rbx, rsp, rbp, r12, r13, r14, r15 복제
-
-    // 자식은 fd, 가상 메모리 공간 포함해서 복제된 리소스를 가져야 함 -> 복제 안 하는건 뭐지?
+    /* parent intr frame을 커널 영역으로 복사 */
     struct intr_frame* parent_tf_copy = palloc_get_page(0);
     if (parent_tf_copy == NULL)
         return TID_ERROR;
@@ -148,23 +147,18 @@ static int fork(const char* thread_name, struct intr_frame* f)
     palloc_free_page(tn_copy);
     palloc_free_page(parent_tf_copy);
 
+    /*
+     * parent : return child pid
+     * child  : return 0
+     */
     return tid;
-
-    // 자식이 성공적으로 복제되기 전까지 부모는 fork 함수에서 반환되면 안된다.
-    // -> 자식이 복제 실패하면 부모는 TID_ERROR 반환
-
-    // threads/mmu.c > pml4_for_each()로 사용자 메모리 공간 복사
-    // pte_for_each_func의 누락 부분은 직접 구현 필요 (See
-    // https://casys-kaist.github.io/pintos-kaist/appendix/virtual_address.html)
-
-    // 부모: 자식 프로세스 pid 반환
-    // 자식: 0 반환
 }
 
 static int exec(const char* cmd_line)
 {
     check_valid_ptr(1, cmd_line);
 
+    /* cmd line을 커널 영역으로 복사 */
     char* cl_copy;
     cl_copy = palloc_get_page(0);
     if (cl_copy == NULL)
@@ -173,23 +167,13 @@ static int exec(const char* cmd_line)
 
     process_exec(cl_copy);
 
-    // case: failure
+    // 실패하고 현재 코드 흐름으로 돌아온 경우, failure
     exit(-1);
 }
-/**
- * gdb는 커널 영역만 디버깅이 가능하다?
- * 그럼 유저영역은 디버깅을 어떻게?
- */
 
 static int wait(int pid)
 {
-    // 자식 프로세스의 pid를 기다리고, 자식의 종료 상태를 가져온다.
-    // pid가 아직 살아 있다면, 종료될 때까지 대기
-    // pid가 exit를 호출하며 전달한 status를 반환
-
-    // 부모가 기다리든 말든, 자식이 부모보다 먼저 죽든 나중에 죽든, 프로세스의 모든 리소스(thread 포함)는 반드시
-    // 해제되어야 한다.
-
+    // FIXME: pid 검증 로직 추가 - 자식 프로세스 중에 pid 있는지 찾기
     return process_wait(pid);
 }
 
@@ -254,7 +238,7 @@ static int open(const char* file_name)
     int fd = -1;
 
     // 3부터 순회 -> 빈 순번 할당
-    for (int i = MIN_FD; i < MAX_FD; i++) {
+    for (int i = MIN_FD; i <= MAX_FD; i++) {
         if (curr->fdte[i] == NULL) {
             curr->fdte[i] = f;
             fd = i;
@@ -349,6 +333,6 @@ static int filesize(int fd)
 
 static void check_valid_fd(int fd)
 {
-    if (fd < MIN_FD || fd >= MAX_FD)
+    if (fd < MIN_FD || fd > MAX_FD)
         exit(-1);
 }

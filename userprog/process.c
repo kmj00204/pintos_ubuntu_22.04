@@ -31,12 +31,6 @@ static void initd(void* aux);
 static void __do_fork(void*);
 static struct child_thread* get_child(tid_t child_tid);
 
-struct initd_aux {
-    char* file_name;
-    struct child_thread* child;
-    struct thread* parent;
-};
-
 /* General process initializer for initd and other process. */
 static void process_init(void)
 {
@@ -116,7 +110,7 @@ static void initd(void* aux)
 #endif
 
     thread_current()->parent = initd_aux->parent;
-    thread_current()->self = initd_aux->child;
+    thread_current()->self = initd_aux->child; // FIXME: parent, self를 이렇게 복잡하게 해야하나?
 
     palloc_free_page(initd_aux);
 
@@ -146,7 +140,7 @@ tid_t process_fork(const char* name, struct intr_frame* if_ UNUSED)
     aux.if_parent = if_;
     aux.ch = child;
 
-    sema_init(&aux.loaded, 0);
+    sema_init(&aux.loaded, 0); // FIXME: child, aux도 마찬가지로 너무 복잡
 
     /* Clone current thread to new thread.*/
     tid_t child_tid = thread_create(name, PRI_DEFAULT, __do_fork, &aux);
@@ -176,8 +170,8 @@ static bool duplicate_pte(uint64_t* pte, void* va, void* aux)
     bool writable;
 
     /* 1. If the parent_page is kernel page, then return immediately. */
-    if (is_kernel_vaddr(va))
-        return true;
+    if (is_kernel_vaddr(va)) // FIXME: ptr < CODE_SEGMENT || ptr >= USER_STACK
+        return true;         // FIXME: false
 
     /* 2. Resolve VA from the parent's page map level 4. */
     parent_page = pml4_get_page(parent->pml4, va);
@@ -234,11 +228,9 @@ static void __do_fork(void* aux)
     supplemental_page_table_init(&current->spt);
     if (!supplemental_page_table_copy(&current->spt, &parent->spt))
         goto error;
-
 #else
     if (!pml4_for_each(parent->pml4, duplicate_pte, parent))
         goto error;
-
 #endif
     /* 파일 복사 */
     for (int i = MIN_FD; i < MAX_FD; i++) { // fdte 전수 조사
@@ -256,7 +248,7 @@ static void __do_fork(void* aux)
     f_aux->ch->status = current->status;
     f_aux->ch->exit_status = current->exit_status;
 
-    if_.R.rax = 0;
+    if_.R.rax = 0; /* 자식 프로세스 반환 값 */
 
     process_init();
 
@@ -375,7 +367,7 @@ int process_wait(tid_t child_tid UNUSED)
     // 현재 스레드의 자식들 중 tid로 찾아서 상태 체크
     struct thread* curr = thread_current();
     if (!list_size(&curr->children)) {
-        timer_sleep(100);
+        timer_sleep(100); // FIXME: 더 좋은 방법 찾기
         return -1;
     }
 
@@ -389,8 +381,8 @@ int process_wait(tid_t child_tid UNUSED)
     if (child->waited == 1)
         return -1;
 
-    child->waited = 1;
-    sema_down(&child->wait_sema);
+    child->waited = 1;            /* wait 기록 */
+    sema_down(&child->wait_sema); /* 자식 완료까지 부모 프로세스 대기 */
 
     enum thread_exit_status exit_status = child->exit_status;
 

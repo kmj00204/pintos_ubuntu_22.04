@@ -462,8 +462,8 @@ static void init_thread(struct thread* t, const char* name, int priority)
     t->magic = THREAD_MAGIC;
     list_init(&t->donations);
     t->waiting_lock = NULL;
-    list_init(&t->children);
 #ifdef USERPROG
+    list_init(&t->children);
     t->parent = NULL;
     t->self = NULL;
 #endif
