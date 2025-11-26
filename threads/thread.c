@@ -465,7 +465,7 @@ static void init_thread(struct thread* t, const char* name, int priority)
 #ifdef USERPROG
     list_init(&t->children);
     t->parent = NULL;
-    t->self = NULL;
+    t->self_metadata = NULL;
 #endif
 }
 
