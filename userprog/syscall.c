@@ -25,7 +25,7 @@ static struct lock console_buffer_lock;
 static char console_ring[CONSOLE_RING_SIZE];
 static size_t console_ring_len;
 
-static void exit(int status);
+void exit(int status);
 static int fork(const char* thread_name, struct intr_frame* f);
 static int exec(const char* cmd_line);
 static int wait(int pid);
@@ -125,7 +125,7 @@ void syscall_handler(struct intr_frame* f UNUSED)
     }
 }
 
-static void exit(int status)
+void exit(int status)
 {
     struct thread* t = thread_current();
 
