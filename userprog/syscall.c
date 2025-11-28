@@ -26,7 +26,7 @@ static char console_ring[CONSOLE_RING_SIZE];
 static size_t console_ring_len;
 
 void exit(int status);
-static int fork(const char* thread_name, struct intr_frame* f);
+static int sys_fork(const char* thread_name, struct intr_frame* f);
 static int exec(const char* cmd_line);
 static int wait(int pid);
 static int create(char* file_name, int initial_size);
@@ -71,54 +71,50 @@ void syscall_init(void)
 void syscall_handler(struct intr_frame* f UNUSED)
 {
     int syscall_num = f->R.rax;
-    uint64_t rax = f->R.rax;
     uint64_t arg1 = f->R.rdi;
     uint64_t arg2 = f->R.rsi;
     uint64_t arg3 = f->R.rdx;
-    uint64_t arg4 = f->R.r10;
-    uint64_t arg5 = f->R.r8;
-    uint64_t arg6 = f->R.r9;
 
     switch (syscall_num) {
 
     case SYS_EXIT:
-        exit(arg1);
+        exit((int)arg1);
         break;
 
     case SYS_FORK:
-        f->R.rax = fork(arg1, f);
+        f->R.rax = sys_fork((const char*)arg1, f);
         break;
 
     case SYS_EXEC:
-        f->R.rax = exec(arg1);
+        f->R.rax = exec((const char*)arg1);
         break;
 
     case SYS_WAIT:
-        f->R.rax = wait(arg1);
+        f->R.rax = wait((int)arg1);
         break;
 
     case SYS_CREATE:
-        f->R.rax = create(arg1, arg2);
+        f->R.rax = create((char*)arg1, (int)arg2);
         break;
 
     case SYS_WRITE:
-        f->R.rax = write(arg1, arg2, arg3);
+        f->R.rax = write((int)arg1, (const void*)arg2, (unsigned)arg3);
         break;
 
     case SYS_OPEN:
-        f->R.rax = open(arg1);
+        f->R.rax = open((const char*)arg1);
         break;
 
     case SYS_CLOSE:
-        close(arg1);
+        close((int)arg1);
         break;
 
     case SYS_READ:
-        f->R.rax = read(arg1, arg2, arg3);
+        f->R.rax = read((int)arg1, (void*)arg2, (unsigned)arg3);
         break;
 
     case SYS_FILESIZE:
-        f->R.rax = filesize(arg1);
+        f->R.rax = filesize((int)arg1);
         break;
 
     case SYS_SEEK:
@@ -138,7 +134,7 @@ void exit(int status)
     thread_exit();
 }
 
-static int fork(const char* thread_name, struct intr_frame* f)
+static int sys_fork(const char* thread_name, struct intr_frame* f)
 {
     check_valid_ptr(1, thread_name);
 
@@ -345,7 +341,7 @@ static void check_valid_ptr(int count, ...)
     va_start(ptr_ap, count);
 
     for (int i = 0; i < count; i++) {
-        uint64_t ptr = va_arg(ptr_ap, uint64_t);
+        void* ptr = va_arg(ptr_ap, void*);
 
         // Check NULL
         if (ptr == NULL) {
@@ -354,7 +350,7 @@ static void check_valid_ptr(int count, ...)
         }
 
         // Check user segment
-        if (ptr < CODE_SEGMENT || ptr >= USER_STACK) {
+        if ((uint64_t)ptr < CODE_SEGMENT || (uint64_t)ptr >= USER_STACK) {
             va_end(ptr_ap);
             exit(-1);
         }
