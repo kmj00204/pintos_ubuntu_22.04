@@ -410,7 +410,6 @@ void process_exit(void)
         }
     }
     if (curr->execute_file != NULL) {
-        file_allow_write(curr->execute_file);
         file_close(curr->execute_file);
     }
 
