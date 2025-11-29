@@ -28,21 +28,21 @@ static struct lock console_buffer_lock;
 static char console_ring[CONSOLE_RING_SIZE];
 static size_t console_ring_len;
 
+static void halt(void) NO_RETURN;
 void exit(int status);
 static int sys_fork(const char* thread_name, struct intr_frame* f);
 static int exec(const char* cmd_line);
 static int wait(int pid);
 static int create(char* file_name, int initial_size);
-static int write(int fd, const void* buffer, unsigned size);
+static bool remove_file(const char* file_name);
 static int open(const char* file_name);
-static void close(int fd);
-static void check_valid_ptr(int count, ...);
-static int read(int fd, void* buffer, unsigned size);
 static int filesize(int fd);
+static int read(int fd, void* buffer, unsigned size);
+static int write(int fd, const void* buffer, unsigned size);
 static void seek(int fd, unsigned position);
 static unsigned tell(int fd);
-static bool remove_file(const char* file_name);
-static void halt(void) NO_RETURN;
+static void close(int fd);
+static void check_valid_ptr(int count, ...);
 static void check_valid_fd(int fd);
 static void flush_console_buffer(void);
 static void enqueue_console_output(const char* buf, size_t size);
@@ -82,66 +82,56 @@ void syscall_handler(struct intr_frame* f UNUSED)
     uint64_t arg3 = f->R.rdx;
 
     switch (syscall_num) {
-
-    case SYS_EXIT:
-        exit((int)arg1);
-        break;
-
     case SYS_HALT:
         halt();
         break;
-
+    case SYS_EXIT:
+        exit((int)arg1);
+        break;
     case SYS_FORK:
         f->R.rax = sys_fork((const char*)arg1, f);
         break;
-
     case SYS_EXEC:
         f->R.rax = exec((const char*)arg1);
         break;
-
     case SYS_WAIT:
         f->R.rax = wait((int)arg1);
         break;
-
     case SYS_CREATE:
         f->R.rax = create((char*)arg1, (int)arg2);
         break;
-
     case SYS_REMOVE:
         f->R.rax = remove_file((const char*)arg1);
         break;
-
-    case SYS_WRITE:
-        f->R.rax = write((int)arg1, (const void*)arg2, (unsigned)arg3);
-        break;
-
     case SYS_OPEN:
         f->R.rax = open((const char*)arg1);
         break;
-
-    case SYS_CLOSE:
-        close((int)arg1);
-        break;
-
-    case SYS_READ:
-        f->R.rax = read((int)arg1, (void*)arg2, (unsigned)arg3);
-        break;
-
     case SYS_FILESIZE:
         f->R.rax = filesize((int)arg1);
         break;
-
+    case SYS_READ:
+        f->R.rax = read((int)arg1, (void*)arg2, (unsigned)arg3);
+        break;
+    case SYS_WRITE:
+        f->R.rax = write((int)arg1, (const void*)arg2, (unsigned)arg3);
+        break;
     case SYS_SEEK:
         seek((int)arg1, (unsigned)arg2);
         break;
-
     case SYS_TELL:
         f->R.rax = tell((int)arg1);
         break;
-
+    case SYS_CLOSE:
+        close((int)arg1);
+        break;
     default:
         thread_exit();
     }
+}
+
+static void halt(void)
+{
+    power_off();
 }
 
 void exit(int status)
@@ -150,11 +140,6 @@ void exit(int status)
 
     t->exit_status = status;
     thread_exit();
-}
-
-static void halt(void)
-{
-    power_off();
 }
 
 static int sys_fork(const char* thread_name, struct intr_frame* f)
@@ -225,76 +210,14 @@ static int create(char* file_name, int initial_size)
     return result;
 }
 
-static int write(int fd, const void* buffer, unsigned size)
+static bool remove_file(const char* file_name)
 {
-    check_valid_ptr(1, buffer);
-    // need to add logic to check entire buffer
-
-    if (fd == 1) {
-        enqueue_console_output((char*)buffer, size);
-        flush_console_buffer();
-        return size;
-    }
-
-    check_valid_fd(fd);
-
-    struct thread* curr = thread_current();
-    struct file* f = curr->fdte[fd];
+    check_valid_ptr(1, file_name);
 
     lock_acquire(&filesys_lock);
-    int bytes_written = file_write(f, buffer, size);
+    bool result = filesys_remove(file_name);
     lock_release(&filesys_lock);
-
-    return bytes_written;
-}
-
-/* 콘솔 출력 링버퍼로 enqueue */
-static void enqueue_console_output(const char* buf, size_t size)
-{
-    size_t offset = 0;
-
-    while (offset < size) {
-        lock_acquire(&console_buffer_lock);
-        size_t space = CONSOLE_RING_SIZE - console_ring_len;
-        if (space == 0) {
-            lock_release(&console_buffer_lock);
-            flush_console_buffer();
-            continue;
-        }
-
-        size_t chunk = size - offset;
-        if (chunk > space)
-            chunk = space;
-
-        memcpy(console_ring + console_ring_len, buf + offset, chunk);
-        console_ring_len += chunk;
-        offset += chunk;
-        lock_release(&console_buffer_lock);
-    }
-}
-
-/* 링버퍼에 모인 데이터를 실제 콘솔로 flush */
-static void flush_console_buffer(void)
-{
-
-    char local[CONSOLE_CHUNK];
-    size_t chunk;
-
-    lock_acquire(&console_buffer_lock);
-    if (console_ring_len == 0) {
-        lock_release(&console_buffer_lock);
-        return;
-    }
-
-    chunk = console_ring_len;
-    if (chunk > CONSOLE_CHUNK)
-        chunk = CONSOLE_CHUNK;
-    memcpy(local, console_ring, chunk);
-    memmove(console_ring, console_ring + chunk, console_ring_len - chunk);
-    console_ring_len -= chunk;
-    lock_release(&console_buffer_lock);
-
-    putbuf(local, chunk);
+    return result;
 }
 
 static int open(const char* file_name)
@@ -334,6 +257,83 @@ static int open(const char* file_name)
     lock_release(&filesys_lock);
 
     return fd;
+}
+
+static int filesize(int fd)
+{
+    check_valid_fd(fd);
+
+    struct thread* t = thread_current();
+    struct file* f = t->fdte[fd];
+    lock_acquire(&filesys_lock);
+    size_t size = file_length(f);
+    lock_release(&filesys_lock);
+    return size;
+}
+
+static int read(int fd, void* buffer, unsigned size)
+{
+    check_valid_ptr(1, buffer);
+
+    check_valid_fd(fd);
+
+    struct thread* t = thread_current();
+    struct file* f = t->fdte[fd];
+
+    lock_acquire(&filesys_lock);
+    int byte_read = file_read(f, buffer, size);
+    lock_release(&filesys_lock);
+
+    return byte_read;
+}
+
+static int write(int fd, const void* buffer, unsigned size)
+{
+    check_valid_ptr(1, buffer);
+    // need to add logic to check entire buffer
+
+    if (fd == 1) {
+        enqueue_console_output((char*)buffer, size);
+        flush_console_buffer();
+        return size;
+    }
+
+    check_valid_fd(fd);
+
+    struct thread* curr = thread_current();
+    struct file* f = curr->fdte[fd];
+
+    lock_acquire(&filesys_lock);
+    int bytes_written = file_write(f, buffer, size);
+    lock_release(&filesys_lock);
+
+    return bytes_written;
+}
+
+static void seek(int fd, unsigned position)
+{
+    check_valid_fd(fd);
+
+    struct thread* t = thread_current();
+    struct file* f = t->fdte[fd];
+
+    lock_acquire(&filesys_lock);
+    file_seek(f, position);
+    lock_release(&filesys_lock);
+}
+
+static unsigned tell(int fd)
+{
+    check_valid_fd(fd);
+
+    struct thread* t = thread_current();
+    struct file* f = t->fdte[fd];
+
+    lock_acquire(&filesys_lock);
+    off_t pos = file_tell(f);
+    lock_release(&filesys_lock);
+
+    return (unsigned)pos;
 }
 
 static void close(int fd)
@@ -389,71 +389,6 @@ static void check_valid_ptr(int count, ...)
 
     va_end(ptr_ap);
 }
-
-static int read(int fd, void* buffer, unsigned size)
-{
-    check_valid_ptr(1, buffer);
-
-    check_valid_fd(fd);
-
-    struct thread* t = thread_current();
-    struct file* f = t->fdte[fd];
-
-    lock_acquire(&filesys_lock);
-    int byte_read = file_read(f, buffer, size);
-    lock_release(&filesys_lock);
-
-    return byte_read;
-}
-
-static int filesize(int fd)
-{
-    check_valid_fd(fd);
-
-    struct thread* t = thread_current();
-    struct file* f = t->fdte[fd];
-    lock_acquire(&filesys_lock);
-    size_t size = file_length(f);
-    lock_release(&filesys_lock);
-    return size;
-}
-
-static void seek(int fd, unsigned position)
-{
-    check_valid_fd(fd);
-
-    struct thread* t = thread_current();
-    struct file* f = t->fdte[fd];
-
-    lock_acquire(&filesys_lock);
-    file_seek(f, position);
-    lock_release(&filesys_lock);
-}
-
-static unsigned tell(int fd)
-{
-    check_valid_fd(fd);
-
-    struct thread* t = thread_current();
-    struct file* f = t->fdte[fd];
-
-    lock_acquire(&filesys_lock);
-    off_t pos = file_tell(f);
-    lock_release(&filesys_lock);
-
-    return (unsigned)pos;
-}
-
-static bool remove_file(const char* file_name)
-{
-    check_valid_ptr(1, file_name);
-
-    lock_acquire(&filesys_lock);
-    bool ok = filesys_remove(file_name);
-    lock_release(&filesys_lock);
-    return ok;
-}
-
 static void check_valid_fd(int fd)
 {
     if (fd < MIN_FD || fd > MAX_FD)
@@ -461,4 +396,53 @@ static void check_valid_fd(int fd)
 
     if (thread_current()->fdte[fd] == NULL)
         exit(-1);
+}
+
+/* 콘솔 출력 링버퍼로 enqueue */
+static void enqueue_console_output(const char* buf, size_t size)
+{
+    size_t offset = 0;
+
+    while (offset < size) {
+        lock_acquire(&console_buffer_lock);
+        size_t space = CONSOLE_RING_SIZE - console_ring_len;
+        if (space == 0) {
+            lock_release(&console_buffer_lock);
+            flush_console_buffer();
+            continue;
+        }
+
+        size_t chunk = size - offset;
+        if (chunk > space)
+            chunk = space;
+
+        memcpy(console_ring + console_ring_len, buf + offset, chunk);
+        console_ring_len += chunk;
+        offset += chunk;
+        lock_release(&console_buffer_lock);
+    }
+}
+
+/* 링버퍼에 모인 데이터를 실제 콘솔로 flush */
+static void flush_console_buffer(void)
+{
+
+    char local[CONSOLE_CHUNK];
+    size_t chunk;
+
+    lock_acquire(&console_buffer_lock);
+    if (console_ring_len == 0) {
+        lock_release(&console_buffer_lock);
+        return;
+    }
+
+    chunk = console_ring_len;
+    if (chunk > CONSOLE_CHUNK)
+        chunk = CONSOLE_CHUNK;
+    memcpy(local, console_ring, chunk);
+    memmove(console_ring, console_ring + chunk, console_ring_len - chunk);
+    console_ring_len -= chunk;
+    lock_release(&console_buffer_lock);
+
+    putbuf(local, chunk);
 }
